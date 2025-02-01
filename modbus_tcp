@@ -1,0 +1,85 @@
+#include <iostream>
+#include <modbus/modbus.h>
+#include <cstring>
+#include <cstdlib>
+#include <unistd.h>
+
+using namespace std;
+
+#define MODBUS_PORT 1502
+#define MODBUS_REGISTERS 10
+
+void start_server() {
+    modbus_t *ctx = modbus_new_tcp("0.0.0.0", MODBUS_PORT);
+    modbus_mapping_t *mb_mapping = modbus_mapping_new(0, 0, MODBUS_REGISTERS, 0);
+
+    if (!ctx || !mb_mapping) {
+        cerr << "Modbus Server Init Failed!" << endl;
+        return;
+    }
+
+    int server_socket = modbus_tcp_listen(ctx, 1);
+    modbus_tcp_accept(ctx, &server_socket);
+
+    cout << "Modbus-TCP Server läuft auf Port " << MODBUS_PORT << "..." << endl;
+
+    while (true) {
+        uint8_t query[MODBUS_TCP_MAX_ADU_LENGTH];
+        int rc = modbus_receive(ctx, query);
+        if (rc > 0) {
+            modbus_reply(ctx, query, rc, mb_mapping);
+        } else {
+            cout << "Client getrennt!" << endl;
+            break;
+        }
+    }
+
+    modbus_close(ctx);
+    modbus_mapping_free(mb_mapping);
+    modbus_free(ctx);
+}
+
+void start_client(const char *server_ip) {
+    modbus_t *ctx = modbus_new_tcp(server_ip, MODBUS_PORT);
+
+    if (!ctx || modbus_connect(ctx) == -1) {
+        cerr << "Verbindung zum Modbus-Server fehlgeschlagen!" << endl;
+        return;
+    }
+
+    cout << "Verbunden mit Modbus-Server auf " << server_ip << endl;
+
+    uint16_t reg_value;
+    if (modbus_read_registers(ctx, 0, 1, &reg_value) == -1) {
+        cerr << "Lesefehler!" << endl;
+    } else {
+        cout << "Register[0]: " << reg_value << endl;
+    }
+
+    reg_value = 42;  // Beispielwert schreiben
+    if (modbus_write_register(ctx, 0, reg_value) == -1) {
+        cerr << "Schreibfehler!" << endl;
+    } else {
+        cout << "Register[0] gesetzt auf " << reg_value << endl;
+    }
+
+    modbus_close(ctx);
+    modbus_free(ctx);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        cout << "Verwendung: " << argv[0] << " [server|client <IP>]" << endl;
+        return 1;
+    }
+
+    if (strcmp(argv[1], "server") == 0) {
+        start_server();
+    } else if (strcmp(argv[1], "client") == 0 && argc == 3) {
+        start_client(argv[2]);
+    } else {
+        cerr << "Ungültige Argumente!" << endl;
+    }
+
+    return 0;
+}
